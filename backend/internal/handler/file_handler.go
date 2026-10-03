@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -224,13 +225,10 @@ func (h *FileHandler) DownloadOrStream(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", fileData.MimeType)
 	w.Header().Set("Content-Disposition", contentDisposition)
-	w.Header().Set("Content-Length", strconv.Itoa(len(fileData.Data)))
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	w.Header().Set("Accept-Ranges", "bytes")
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(fileData.Data)
+	http.ServeContent(w, r, fileData.OriginalName, fileData.CreatedAt, bytes.NewReader(fileData.Data))
 }
 
 func (h *FileHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {

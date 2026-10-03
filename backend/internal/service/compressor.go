@@ -66,23 +66,12 @@ func (c *Compressor) Process(ctx context.Context, originalData []byte, filename 
 		MimeType:    mimeType,
 	}
 
-	// 1. Check if already compressed format
+	// 1. Check if already compressed archive format
 	if c.isAlreadyCompressed(mimeType, filename) {
 		return result, nil
 	}
 
-	// 2. Check Text formats: compress with Zstandard
-	if c.isTextFormat(mimeType, filename) {
-		compressed := c.zstdWriter.EncodeAll(originalData, make([]byte, 0, len(originalData)/2))
-		if int64(len(compressed)) < origLen {
-			result.Data = compressed
-			result.Compression = "zstd"
-			result.StoredSize = int64(len(compressed))
-		}
-		return result, nil
-	}
-
-	// 3. Check Image formats: JPEG, PNG, etc.
+	// 2. Check Image formats: JPEG, PNG, etc. -> WebP optimization
 	if c.isOptimizableImage(mimeType, filename) {
 		optResult, err := c.optimizeImage(originalData, mimeType)
 		if err == nil && optResult != nil {
@@ -93,26 +82,48 @@ func (c *Compressor) Process(ctx context.Context, originalData []byte, filename 
 				result.Compression = optResult.Compression
 				result.StoredSize = int64(len(optResult.Data))
 				result.MimeType = optResult.MimeType
+				return result, nil
 			}
 		}
+	}
+
+	// 3. Check Video formats: MP4, MKV, WebM, MOV, AVI
+	ext := strings.ToLower(filepath.Ext(filename))
+	isVideo := strings.HasPrefix(mimeType, "video/") ||
+		ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" || ext == ".avi"
+
+	if isVideo {
+		// Optional FFmpeg transcoding if enabled and installed
+		if c.cfg.EnableVideoTranscoding {
+			transResult, err := c.transcodeVideo(ctx, originalData, filename)
+			if err == nil && transResult != nil && int64(len(transResult.Data)) < origLen {
+				result.Data = transResult.Data
+				result.Compression = transResult.Compression
+				result.StoredSize = int64(len(transResult.Data))
+				result.MimeType = transResult.MimeType
+				result.Codec = transResult.Codec
+				return result, nil
+			}
+		}
+
+		// Direct video bitstream compression via Zstandard
+		compressed := c.zstdWriter.EncodeAll(originalData, make([]byte, 0, len(originalData)/2))
+		if int64(len(compressed)) < origLen {
+			result.Data = compressed
+			result.Compression = "zstd"
+			result.StoredSize = int64(len(compressed))
+			return result, nil
+		}
+
 		return result, nil
 	}
 
-	// 4. Check Video formats: optional FFmpeg transcoding
-	if strings.HasPrefix(mimeType, "video/") {
-		if c.cfg.EnableVideoTranscoding {
-			transResult, err := c.transcodeVideo(ctx, originalData, filename)
-			if err == nil && transResult != nil {
-				if int64(len(transResult.Data)) < origLen {
-					result.Data = transResult.Data
-					result.Compression = transResult.Compression
-					result.StoredSize = int64(len(transResult.Data))
-					result.MimeType = transResult.MimeType
-					result.Codec = transResult.Codec
-				}
-			}
-		}
-		// For videos without transcoding or where transcoded >= original, store original as "none"
+	// 4. Check PDF, Text, and other formats: compress with Zstandard
+	compressed := c.zstdWriter.EncodeAll(originalData, make([]byte, 0, len(originalData)/2))
+	if int64(len(compressed)) < origLen {
+		result.Data = compressed
+		result.Compression = "zstd"
+		result.StoredSize = int64(len(compressed))
 		return result, nil
 	}
 
@@ -162,8 +173,6 @@ func (c *Compressor) isAlreadyCompressed(mimeType string, filename string) bool 
 	ext := strings.ToLower(filepath.Ext(filename))
 	alreadyExts := map[string]bool{
 		".zip": true, ".rar": true, ".7z": true, ".gz": true, ".tar": true,
-		".pdf": true, ".mp4": true, ".mkv": true, ".webm": true,
-		".webp": true, ".avif": true, ".mp3": true, ".aac": true,
 	}
 	if alreadyExts[ext] {
 		return true
@@ -172,11 +181,9 @@ func (c *Compressor) isAlreadyCompressed(mimeType string, filename string) bool 
 	return mimeType == "application/zip" ||
 		mimeType == "application/x-rar-compressed" ||
 		mimeType == "application/x-7z-compressed" ||
-		mimeType == "application/pdf" ||
-		mimeType == "image/webp" ||
-		mimeType == "image/avif" ||
-		mimeType == "video/mp4"
+		mimeType == "application/gzip"
 }
+
 
 func (c *Compressor) optimizeImage(originalData []byte, mimeType string) (*CompressionResult, error) {
 	img, _, err := image.Decode(bytes.NewReader(originalData))
