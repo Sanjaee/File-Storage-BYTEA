@@ -1,0 +1,39 @@
+# Binaries and compiled files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+backend/api.exe
+backend/worker.exe
+
+# Node dependencies & Next.js build
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.next/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# IDE and Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

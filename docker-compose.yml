@@ -1,0 +1,97 @@
+services:
+  postgresql:
+    image: postgres:16-alpine
+    container_name: filestorage-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: filestorage
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d filestorage"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: filestorage-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  golang-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: filestorage-api
+    command: ["/app/api"]
+    restart: unless-stopped
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@postgresql:5432/filestorage?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      MAX_UPLOAD_SIZE_MB: "500"
+      DEDUPLICATION_ENABLED: "true"
+      MAX_RETRIES: "5"
+      ALLOWED_ORIGINS: "*"
+      DB_MAX_OPEN_CONNECTIONS: "25"
+      DB_MAX_IDLE_CONNECTIONS: "10"
+    ports:
+      - "8080:8080"
+
+  golang-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: filestorage-worker
+    command: ["/app/worker"]
+    restart: unless-stopped
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgresql:5432/filestorage?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      WORKER_CONCURRENCY: "5"
+      MAX_RETRIES: "5"
+      DEDUPLICATION_ENABLED: "true"
+      ENABLE_VIDEO_TRANSCODING: "true"
+      IMAGE_QUALITY: "80"
+      DB_MAX_OPEN_CONNECTIONS: "20"
+      DB_MAX_IDLE_CONNECTIONS: "10"
+
+  nextjs:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: filestorage-frontend
+    restart: unless-stopped
+    depends_on:
+      - golang-api
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8080"
+      BACKEND_INTERNAL_URL: "http://golang-api:8080"
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+    driver: local
