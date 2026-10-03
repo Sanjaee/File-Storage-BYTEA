@@ -177,6 +177,10 @@ func (s *FileService) ProcessFileTask(ctx context.Context, fileID uuid.UUID, bat
 		slog.Info("file already completed, skipping", "file_id", fileID)
 		return nil
 	}
+	if fileData.Status == model.StatusCancelled {
+		slog.Info("file was cancelled by user, skipping processing", "file_id", fileID)
+		return nil
+	}
 
 	// Transition to processing
 	if err := s.db.UpdateFileStatus(ctx, fileID, model.StatusProcessing); err != nil {
@@ -228,6 +232,13 @@ func (s *FileService) ProcessFileTask(ctx context.Context, fileID uuid.UUID, bat
 			StoredSize:  fileData.OriginalSize,
 			MimeType:    fileData.MimeType,
 		}
+	}
+
+	// Check if file was cancelled while compression was executing
+	currentStatus, statusErr := s.db.GetFileStatus(ctx, fileID)
+	if statusErr == nil && currentStatus == model.StatusCancelled {
+		slog.Info("file was cancelled during compression, skipping persistence", "file_id", fileID)
+		return nil
 	}
 
 	// Persist optimized binary to PostgreSQL BYTEA
@@ -350,5 +361,60 @@ func (s *FileService) GetStats(ctx context.Context) (*model.StorageStats, error)
 
 func (s *FileService) GetQueueClient() *queue.Client {
 	return s.queueClient
+}
+
+func (s *FileService) CancelFile(ctx context.Context, id uuid.UUID) (*model.FileRecord, error) {
+	record, err := s.db.CancelFile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if record != nil {
+		if record.BatchID != nil {
+			_ = s.db.UpdateBatchTransition(ctx, *record.BatchID, model.StatusQueued, model.StatusFailed)
+		}
+		if s.queueClient != nil {
+			_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+				Type:   "file_cancelled",
+				FileID: &id,
+				Status: string(model.StatusCancelled),
+			})
+			_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+				Type: "files_deleted",
+			})
+		}
+	}
+	return record, nil
+}
+
+func (s *FileService) CancelBatch(ctx context.Context, batchID uuid.UUID) (int64, error) {
+	count, err := s.db.CancelBatch(ctx, batchID)
+	if err != nil {
+		return 0, err
+	}
+	if s.queueClient != nil {
+		_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+			Type: "batch_cancelled",
+		})
+		_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+			Type: "files_deleted",
+		})
+	}
+	return count, nil
+}
+
+func (s *FileService) CancelAllQueued(ctx context.Context) (int64, error) {
+	count, err := s.db.CancelAllQueued(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if s.queueClient != nil {
+		_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+			Type: "queue_cancelled",
+		})
+		_ = s.queueClient.PublishEvent(ctx, queue.StorageEvent{
+			Type: "files_deleted",
+		})
+	}
+	return count, nil
 }
 

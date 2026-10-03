@@ -150,6 +150,36 @@ export async function bulkDeleteFilesApi(ids: string[]): Promise<{ message: stri
   return res.json()
 }
 
+export async function cancelFileApi(id: string): Promise<{ success: boolean; message: string }> {
+  const url = `${getApiBaseUrl()}/api/files/${id}/cancel`
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || "Failed to cancel file")
+  }
+  return res.json()
+}
+
+export async function cancelBatchApi(batchId: string): Promise<{ success: boolean; cancelledCount: number; message: string }> {
+  const url = `${getApiBaseUrl()}/api/upload-batches/${batchId}/cancel`
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || "Failed to cancel upload batch")
+  }
+  return res.json()
+}
+
+export async function cancelQueueApi(): Promise<{ success: boolean; cancelledCount: number; message: string }> {
+  const url = `${getApiBaseUrl()}/api/queue/cancel`
+  const res = await fetch(url, { method: "POST" })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || "Failed to cancel queue")
+  }
+  return res.json()
+}
+
 export function getDownloadUrl(id: string, download: boolean = true): string {
   return `${getApiBaseUrl()}/api/files/${id}${download ? "?download=true" : ""}`
 }
@@ -157,4 +187,5 @@ export function getDownloadUrl(id: string, download: boolean = true): string {
 export function getStreamUrl(id: string): string {
   return `${getApiBaseUrl()}/api/files/${id}`
 }
+
 

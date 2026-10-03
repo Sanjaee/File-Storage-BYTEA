@@ -13,6 +13,7 @@ const (
 	StatusProcessing FileStatus = "processing"
 	StatusCompleted  FileStatus = "completed"
 	StatusFailed     FileStatus = "failed"
+	StatusCancelled  FileStatus = "cancelled"
 )
 
 // FileRecord represents the metadata of a file stored in PostgreSQL

@@ -42,7 +42,10 @@ func (h *FileHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/api/files/{id}", h.DownloadOrStream)
 	r.Get("/api/files/{id}/meta", h.GetMetadata)
 	r.Delete("/api/files/{id}", h.Delete)
+	r.Post("/api/files/{id}/cancel", h.CancelFile)
 	r.Post("/api/files/bulk-delete", h.BulkDelete)
+	r.Post("/api/upload-batches/{id}/cancel", h.CancelBatch)
+	r.Post("/api/queue/cancel", h.CancelAllQueued)
 	r.Get("/api/stats", h.GetStats)
 	r.Get("/api/events", h.EventsSSE)
 
@@ -388,4 +391,75 @@ func sendError(w http.ResponseWriter, statusCode int, message string) {
 		"error": message,
 	})
 }
+
+func sendJSON(w http.ResponseWriter, statusCode int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+// CancelFile cancels an in-progress or queued file processing task
+func (h *FileHandler) CancelFile(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid file ID format.")
+		return
+	}
+
+	record, err := h.service.CancelFile(r.Context(), id)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "Failed to cancel file.")
+		return
+	}
+	if record == nil {
+		sendError(w, http.StatusNotFound, "File not found or already completed.")
+		return
+	}
+
+	sendJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"fileId":  id.String(),
+		"message": "File processing cancelled successfully.",
+	})
+}
+
+// CancelBatch cancels all queued files in a batch
+func (h *FileHandler) CancelBatch(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid batch ID format.")
+		return
+	}
+
+	count, err := h.service.CancelBatch(r.Context(), id)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "Failed to cancel batch.")
+		return
+	}
+
+	sendJSON(w, http.StatusOK, map[string]interface{}{
+		"success":        true,
+		"batchId":        id.String(),
+		"cancelledCount": count,
+		"message":        fmt.Sprintf("Batch cancelled: %d files removed from queue.", count),
+	})
+}
+
+// CancelAllQueued cancels all queued files system-wide
+func (h *FileHandler) CancelAllQueued(w http.ResponseWriter, r *http.Request) {
+	count, err := h.service.CancelAllQueued(r.Context())
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "Failed to cancel queue.")
+		return
+	}
+
+	sendJSON(w, http.StatusOK, map[string]interface{}{
+		"success":        true,
+		"cancelledCount": count,
+		"message":        fmt.Sprintf("Queue cancelled: %d files removed from processing queue.", count),
+	})
+}
+
 

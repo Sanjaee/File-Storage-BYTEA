@@ -59,7 +59,9 @@ func (db *DB) migrate(ctx context.Context) error {
 	DO $$ 
 	BEGIN
 		IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'file_status') THEN
-			CREATE TYPE file_status AS ENUM ('queued', 'processing', 'completed', 'failed');
+			CREATE TYPE file_status AS ENUM ('queued', 'processing', 'completed', 'failed', 'cancelled');
+		ELSE
+			ALTER TYPE file_status ADD VALUE IF NOT EXISTS 'cancelled';
 		END IF;
 	END $$;
 
@@ -319,6 +321,112 @@ func (db *DB) UpdateFileFailed(ctx context.Context, id uuid.UUID, errMsg string)
 	return err
 }
 
+// GetFileStatus returns the current status of a file
+func (db *DB) GetFileStatus(ctx context.Context, id uuid.UUID) (model.FileStatus, error) {
+	query := `SELECT status FROM files WHERE id = $1`
+	var status model.FileStatus
+	err := db.pool.QueryRowContext(ctx, query, id).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return status, nil
+}
+
+// CancelFile marks a queued or processing file as cancelled, clears bytea payload, and returns the file record
+func (db *DB) CancelFile(ctx context.Context, id uuid.UUID) (*model.FileRecord, error) {
+	query := `
+	UPDATE files
+	SET status = 'cancelled',
+	    error_message = 'Cancelled by user',
+	    data = NULL,
+	    processed_at = NOW()
+	WHERE id = $1 AND status IN ('queued', 'processing')
+	RETURNING id, batch_id, original_name, mime_type, original_size, stored_size, compression, checksum, status, error_message, created_at, processed_at
+	`
+	row := db.pool.QueryRowContext(ctx, query, id)
+	var f model.FileRecord
+	err := row.Scan(
+		&f.ID,
+		&f.BatchID,
+		&f.OriginalName,
+		&f.MimeType,
+		&f.OriginalSize,
+		&f.StoredSize,
+		&f.Compression,
+		&f.Checksum,
+		&f.Status,
+		&f.ErrorMessage,
+		&f.CreatedAt,
+		&f.ProcessedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	calculateSavings(&f)
+	return &f, nil
+}
+
+// CancelBatch marks all queued or processing files in a batch as cancelled
+func (db *DB) CancelBatch(ctx context.Context, batchID uuid.UUID) (int64, error) {
+	query := `
+	UPDATE files
+	SET status = 'cancelled',
+	    error_message = 'Batch cancelled by user',
+	    data = NULL,
+	    processed_at = NOW()
+	WHERE batch_id = $1 AND status IN ('queued', 'processing')
+	`
+	res, err := db.pool.ExecContext(ctx, query, batchID)
+	if err != nil {
+		return 0, err
+	}
+	cancelledCount, _ := res.RowsAffected()
+
+	batchQuery := `
+	UPDATE upload_batches
+	SET queued_files = 0,
+	    processing_files = 0,
+	    failed_files = failed_files + $1,
+	    completed_at = NOW()
+	WHERE id = $2
+	`
+	_, _ = db.pool.ExecContext(ctx, batchQuery, cancelledCount, batchID)
+	return cancelledCount, nil
+}
+
+// CancelAllQueued cancels all currently queued and processing files system-wide
+func (db *DB) CancelAllQueued(ctx context.Context) (int64, error) {
+	query := `
+	UPDATE files
+	SET status = 'cancelled',
+	    error_message = 'Queue cancelled by user',
+	    data = NULL,
+	    processed_at = NOW()
+	WHERE status IN ('queued', 'processing')
+	`
+	res, err := db.pool.ExecContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	count, _ := res.RowsAffected()
+
+	batchQuery := `
+	UPDATE upload_batches
+	SET queued_files = 0,
+	    processing_files = 0,
+	    completed_at = NOW()
+	WHERE queued_files > 0 OR processing_files > 0
+	`
+	_, _ = db.pool.ExecContext(ctx, batchQuery)
+	return count, nil
+}
+
 // GetFileMetaByID fetches file metadata without the heavy BYTEA payload
 func (db *DB) GetFileMetaByID(ctx context.Context, id uuid.UUID) (*model.FileRecord, error) {
 	query := `
@@ -502,9 +610,9 @@ func (db *DB) DeleteFilesBulk(ctx context.Context, ids []uuid.UUID) (int64, erro
 func (db *DB) GetStats(ctx context.Context) (*model.StorageStats, error) {
 	query := `
 	SELECT 
-		COUNT(*), 
-		COALESCE(SUM(original_size), 0), 
-		COALESCE(SUM(COALESCE(stored_size, original_size)), 0),
+		COUNT(*) FILTER (WHERE status != 'cancelled'), 
+		COALESCE(SUM(original_size) FILTER (WHERE status != 'cancelled'), 0), 
+		COALESCE(SUM(COALESCE(stored_size, original_size)) FILTER (WHERE status != 'cancelled'), 0),
 		COUNT(*) FILTER (WHERE status = 'queued'),
 		COUNT(*) FILTER (WHERE status = 'processing'),
 		COUNT(*) FILTER (WHERE status = 'completed'),

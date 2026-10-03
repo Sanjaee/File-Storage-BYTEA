@@ -19,6 +19,7 @@ import {
   Clock,
   AlertCircle,
   CheckSquare,
+  Ban,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -32,6 +33,7 @@ interface FileListProps {
   onSelectFile: (file: FileRecord) => void
   onDeleteRequest: (file: FileRecord) => void
   onBulkDeleteRequest?: (selectedFiles: FileRecord[]) => void
+  onCancelRequest?: (file: FileRecord) => void
 }
 
 export function FileList({
@@ -40,6 +42,7 @@ export function FileList({
   onSelectFile,
   onDeleteRequest,
   onBulkDeleteRequest,
+  onCancelRequest,
 }: FileListProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
@@ -57,6 +60,7 @@ export function FileList({
     { label: "Completed", value: "completed" },
     { label: "Processing", value: "processing" },
     { label: "Queued", value: "queued" },
+    { label: "Cancelled", value: "cancelled" },
     { label: "Failed", value: "failed" },
   ]
 
@@ -194,6 +198,13 @@ export function FileList({
           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
             <Clock className="h-3.5 w-3.5" />
             Queued
+          </span>
+        )
+      case "cancelled":
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500 dark:text-rose-400">
+            <Ban className="h-3.5 w-3.5" />
+            Cancelled
           </span>
         )
       case "failed":
@@ -559,6 +570,19 @@ export function FileList({
                           <Download className="h-3.5 w-3.5" />
                         </Button>
                       </a>
+                      {/* Cancel Queue Action if queued or processing */}
+                      {onCancelRequest && (file.status === "queued" || file.status === "processing") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                          onClick={() => onCancelRequest(file)}
+                          title="Batalkan Proses Antrean"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+
                       <Button
                         variant="ghost"
                         size="icon"

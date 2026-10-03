@@ -1,20 +1,30 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import {
   CheckCircle2,
   Clock,
   Loader2,
   AlertCircle,
-  Zap,
   ArrowUpCircle,
   Database,
   Layers,
+  Ban,
+  X,
+  ChevronDown,
+  ChevronUp,
+  FileIcon,
+  ImageIcon,
+  VideoIcon,
+  FileTextIcon,
 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
-import { formatBytes } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { formatBytes, getFileCategory } from "@/lib/utils"
+import { ClientQueueItem } from "@/lib/types"
 
 export interface BatchProgressProps {
+  batchId?: string
   total: number
   uploadedNetworkCount: number
   networkUploadedBytes: number
@@ -25,6 +35,10 @@ export interface BatchProgressProps {
   backendFailed: number
   activeUploadsCount: number
   isUploading: boolean
+  items?: ClientQueueItem[]
+  onCancelBatch?: () => void
+  onCancelItem?: (itemId: string) => void
+  onDismiss?: () => void
 }
 
 export function BatchProgressCard({
@@ -38,7 +52,13 @@ export function BatchProgressCard({
   backendFailed,
   activeUploadsCount,
   isUploading,
+  items,
+  onCancelBatch,
+  onCancelItem,
+  onDismiss,
 }: BatchProgressProps) {
+  const [showItems, setShowItems] = useState(false)
+
   if (total === 0) return null
 
   // 1. Network upload percentage
@@ -54,7 +74,7 @@ export function BatchProgressCard({
   const backendProgress =
     total > 0 ? Math.min(100, Math.round((processedCount / total) * 100)) : 0
 
-  // 3. Overall composite progress (50% network + 50% backend)
+  // 3. Overall composite progress (40% network + 60% backend)
   const overallProgress = Math.min(
     100,
     Math.round(networkProgress * 0.4 + backendProgress * 0.6)
@@ -62,10 +82,42 @@ export function BatchProgressCard({
 
   const isDone = backendProgress >= 100 && networkProgress >= 100
 
+  const getItemIcon = (mimeType: string, filename: string) => {
+    const cat = getFileCategory(mimeType, filename)
+    switch (cat) {
+      case "Image":
+        return <ImageIcon className="h-4 w-4 text-purple-500" />
+      case "Video":
+        return <VideoIcon className="h-4 w-4 text-rose-500" />
+      case "Document":
+        return <FileTextIcon className="h-4 w-4 text-blue-500" />
+      default:
+        return <FileIcon className="h-4 w-4 text-slate-500" />
+    }
+  }
+
+  const renderItemStatus = (status: ClientQueueItem["status"]) => {
+    switch (status) {
+      case "completed":
+        return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+      case "processing":
+      case "queued":
+        return <Loader2 className="h-3.5 w-3.5 text-indigo-500 animate-spin" />
+      case "uploading":
+        return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+      case "waiting":
+        return <Clock className="h-3.5 w-3.5 text-slate-400" />
+      case "cancelled":
+        return <Ban className="h-3.5 w-3.5 text-rose-500" />
+      case "failed":
+        return <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-500/5 via-white to-slate-50 p-5 shadow-sm dark:border-blue-500/20 dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900/90 space-y-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400">
             {isDone ? (
@@ -99,7 +151,7 @@ export function BatchProgressCard({
           </div>
         </div>
 
-        {/* Overall progress indicator */}
+        {/* Overall progress indicator & Cancel/Dismiss Controls */}
         <div className="flex items-center gap-3">
           <div className="text-right">
             <span className="text-xs text-slate-500">Overall Progress</span>
@@ -107,6 +159,31 @@ export function BatchProgressCard({
               {overallProgress}%
             </p>
           </div>
+
+          {/* Batalkan Antrean button */}
+          {!isDone && onCancelBatch && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onCancelBatch}
+              className="h-8 gap-1.5 text-xs font-semibold text-rose-600 border-rose-500/30 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:border-rose-500/30 dark:hover:bg-rose-950/50"
+              title="Batalkan Seluruh Antrean Upload"
+            >
+              <Ban className="h-3.5 w-3.5" />
+              Batalkan Antrean
+            </Button>
+          )}
+
+          {/* Dismiss button when finished */}
+          {isDone && onDismiss && (
+            <button
+              onClick={onDismiss}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+              title="Tutup Ringkasan Antrean"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -208,6 +285,92 @@ export function BatchProgressCard({
           </div>
         </div>
       </div>
+
+      {/* Expandable Queue Items List */}
+      {items && items.length > 0 && (
+        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+          <button
+            onClick={() => setShowItems(!showItems)}
+            className="w-full flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white py-1 transition-colors"
+          >
+            <span className="font-semibold flex items-center gap-1.5">
+              <span>Daftar File Antrean ({items.length})</span>
+              <span className="text-[11px] font-normal text-slate-400">
+                &bull; Klik untuk melihat detail &amp; batalkan per file
+              </span>
+            </span>
+            {showItems ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+
+          {showItems && (
+            <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
+              {items.map((it) => (
+                <div
+                  key={it.id}
+                  className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-200/70 bg-white/80 dark:border-slate-800/70 dark:bg-slate-950/50 text-xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                      {getItemIcon(it.type, it.name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900 dark:text-slate-100 truncate">
+                        {it.name}
+                      </p>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span>{formatBytes(it.size)}</span>
+                        <span>&bull;</span>
+                        <span className="font-mono">
+                          {it.status === "uploading"
+                            ? `Uploading ${it.networkProgress}%`
+                            : it.status === "waiting"
+                            ? "Waiting in queue"
+                            : it.status === "queued"
+                            ? "Queued in Asynq"
+                            : it.status === "processing"
+                            ? "Optimizing binary..."
+                            : it.status === "completed"
+                            ? "Completed"
+                            : it.status === "cancelled"
+                            ? "Cancelled"
+                            : "Failed"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Progress percentage during upload */}
+                    {it.status === "uploading" && (
+                      <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400">
+                        {it.networkProgress}%
+                      </span>
+                    )}
+
+                    {/* Status icon badge */}
+                    {renderItemStatus(it.status)}
+
+                    {/* Per-item cancel button */}
+                    {onCancelItem &&
+                      (it.status === "waiting" ||
+                        it.status === "uploading" ||
+                        it.status === "queued" ||
+                        it.status === "processing") && (
+                        <button
+                          onClick={() => onCancelItem(it.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          title="Batalkan File Ini"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-export type FileStatus = "queued" | "processing" | "completed" | "failed"
+export type FileStatus = "queued" | "processing" | "completed" | "failed" | "cancelled"
 
 export interface FileRecord {
   id: string
@@ -69,7 +69,7 @@ export interface ClientQueueItem {
   type: string
   networkProgress: number
   uploadedBytes: number
-  status: "waiting" | "uploading" | "queued" | "processing" | "completed" | "failed"
+  status: "waiting" | "uploading" | "queued" | "processing" | "completed" | "failed" | "cancelled"
   fileId?: string
   batchId?: string
   result?: FileRecord

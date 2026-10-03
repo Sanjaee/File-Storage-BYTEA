@@ -34,6 +34,9 @@ import {
   fetchStats,
   deleteFileApi,
   bulkDeleteFilesApi,
+  cancelFileApi,
+  cancelBatchApi,
+  cancelQueueApi,
   createBatch,
   getBatch,
   uploadFileFast,
@@ -232,18 +235,26 @@ export default function FilesPage() {
         }
       )
 
+      setClientQueue((prev) =>
+        prev.map((it) =>
+          it.id === item.id ? { ...it, status: "uploading", xhr: handle.xhr } : it
+        )
+      )
+
       handle.promise
         .then((res) => {
           setClientQueue((prev) =>
             prev.map((it) =>
               it.id === item.id
-                ? {
-                    ...it,
-                    status: "queued",
-                    fileId: res.fileId,
-                    networkProgress: 100,
-                    uploadedBytes: item.size,
-                  }
+                ? it.status === "cancelled"
+                  ? it
+                  : {
+                      ...it,
+                      status: "queued",
+                      fileId: res.fileId,
+                      networkProgress: 100,
+                      uploadedBytes: item.size,
+                    }
                 : it
             )
           )
@@ -254,11 +265,13 @@ export default function FilesPage() {
           setClientQueue((prev) =>
             prev.map((it) =>
               it.id === item.id
-                ? {
-                    ...it,
-                    status: "failed",
-                    errorMessage: err instanceof Error ? err.message : "Upload failed",
-                  }
+                ? it.status === "cancelled"
+                  ? it
+                  : {
+                      ...it,
+                      status: "failed",
+                      errorMessage: err instanceof Error ? err.message : "Upload failed",
+                    }
                 : it
             )
           )
@@ -322,6 +335,106 @@ export default function FilesPage() {
       const msg = err instanceof Error ? err.message : "Failed to create upload batch"
       toast({
         title: "Queue Failed",
+        description: msg,
+        type: "error",
+      })
+    }
+  }
+
+  // Cancel single item in client queue / backend
+  const handleCancelQueueItem = async (itemId: string) => {
+    const item = queueRef.current.find((it) => it.id === itemId)
+    if (!item) return
+
+    if (item.xhr) {
+      try {
+        item.xhr.abort()
+      } catch {
+        // ignore
+      }
+    }
+
+    if (item.fileId) {
+      try {
+        await cancelFileApi(item.fileId)
+      } catch (err) {
+        console.warn("Failed to cancel on backend:", err)
+      }
+    }
+
+    setClientQueue((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? { ...it, status: "cancelled", errorMessage: "Dibatalkan oleh pengguna" }
+          : it
+      )
+    )
+
+    toast({
+      title: "Upload Dibatalkan",
+      description: `File "${item.name}" berhasil dibatalkan.`,
+      type: "info",
+    })
+
+    loadData(true)
+  }
+
+  // Cancel entire batch / active queue
+  const handleCancelBatch = async () => {
+    queueRef.current.forEach((it) => {
+      if (it.xhr) {
+        try {
+          it.xhr.abort()
+        } catch {
+          // ignore
+        }
+      }
+    })
+
+    const currentBatchId = batchIdRef.current
+    try {
+      if (currentBatchId) {
+        await cancelBatchApi(currentBatchId)
+      } else {
+        await cancelQueueApi()
+      }
+    } catch (err: unknown) {
+      console.warn("Failed to cancel batch on backend:", err)
+    }
+
+    setClientQueue((prev) =>
+      prev.map((it) =>
+        it.status === "waiting" || it.status === "uploading" || it.status === "queued" || it.status === "processing"
+          ? { ...it, status: "cancelled", errorMessage: "Antrean dibatalkan" }
+          : it
+      )
+    )
+
+    setIsUploading(false)
+
+    toast({
+      title: "Antrean Dibatalkan",
+      description: "Seluruh proses upload dan antrean Asynq berhasil dibatalkan.",
+      type: "info",
+    })
+
+    loadData(true)
+  }
+
+  // Cancel file from FileList table
+  const handleCancelFileFromList = async (file: FileRecord) => {
+    try {
+      await cancelFileApi(file.id)
+      toast({
+        title: "Proses Dibatalkan",
+        description: `Proses file "${file.filename}" berhasil dibatalkan.`,
+        type: "info",
+      })
+      loadData(true)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal membatalkan proses file"
+      toast({
+        title: "Gagal Membatalkan",
         description: msg,
         type: "error",
       })
@@ -467,6 +580,7 @@ export default function FilesPage() {
         {currentBatch && (
           <section aria-label="Batch Progress">
             <BatchProgressCard
+              batchId={currentBatch.batchId}
               total={currentBatch.total}
               uploadedNetworkCount={uploadedNetworkCount}
               networkUploadedBytes={networkUploadedBytes}
@@ -477,6 +591,10 @@ export default function FilesPage() {
               backendFailed={currentBatch.failed}
               activeUploadsCount={activeUploadsCountRef.current}
               isUploading={isUploading}
+              items={clientQueue}
+              onCancelBatch={handleCancelBatch}
+              onCancelItem={handleCancelQueueItem}
+              onDismiss={() => setCurrentBatch(null)}
             />
           </section>
         )}
@@ -527,6 +645,7 @@ export default function FilesPage() {
             onSelectFile={(file) => setSelectedFileForDetail(file)}
             onDeleteRequest={(file) => setFileToDelete(file)}
             onBulkDeleteRequest={(targetFiles) => setBulkDeleteTargetFiles(targetFiles)}
+            onCancelRequest={handleCancelFileFromList}
           />
         </section>
       </main>
