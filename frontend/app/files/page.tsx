@@ -22,6 +22,7 @@ import { FileList } from "@/components/file-list"
 import { FileDetailDialog } from "@/components/file-detail-dialog"
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog"
 import { BulkDeleteDialog } from "@/components/bulk-delete-dialog"
+import { isAllowedFileType } from "@/lib/utils"
 import {
   FileRecord,
   StorageStats as StatsType,
@@ -271,16 +272,29 @@ export default function FilesPage() {
 
   // Start upload batch when files are selected
   const handleFilesSelected = async (selectedFiles: File[]) => {
-    if (selectedFiles.length === 0) return
+    // Only allow Image, Video, and PDF; strictly reject APK, EXE, and applications
+    const allowedFiles = selectedFiles.filter((f) => isAllowedFileType(f.type, f.name))
+    const rejectedCount = selectedFiles.length - allowedFiles.length
+
+    if (rejectedCount > 0) {
+      toast({
+        title: "File Ditolak",
+        description: `${rejectedCount} file dilewati. Hanya file Gambar, Video, dan PDF yang diizinkan. APK/EXE tidak diizinkan.`,
+        type: "error",
+      })
+    }
+
+
+    if (allowedFiles.length === 0) return
 
     try {
       // 1. Create upload batch on server
-      const batch = await createBatch(selectedFiles.length)
+      const batch = await createBatch(allowedFiles.length)
       batchIdRef.current = batch.batchId
       setCurrentBatch(batch)
 
       // 2. Enqueue files to client bounded queue
-      const newItems: ClientQueueItem[] = selectedFiles.map((file, idx) => ({
+      const newItems: ClientQueueItem[] = allowedFiles.map((file, idx) => ({
         id: `queue-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
         file,
         name: file.name,
@@ -296,7 +310,7 @@ export default function FilesPage() {
 
       toast({
         title: "Batch Queued",
-        description: `${selectedFiles.length} files added to upload queue (${CLIENT_UPLOAD_CONCURRENCY} concurrent streams).`,
+        description: `${allowedFiles.length} files added to upload queue (${CLIENT_UPLOAD_CONCURRENCY} concurrent streams).`,
         type: "info",
       })
 

@@ -23,10 +23,11 @@ import (
 )
 
 var (
-	ErrFileTooLarge     = errors.New("file exceeds maximum allowed size")
-	ErrEmptyFile        = errors.New("file cannot be empty")
-	ErrFileNotFound     = errors.New("file not found")
-	ErrDuplicatePayload = errors.New("duplicate file already exists")
+	ErrFileTooLarge         = errors.New("file exceeds maximum allowed size")
+	ErrEmptyFile            = errors.New("file cannot be empty")
+	ErrFileNotFound         = errors.New("file not found")
+	ErrDuplicatePayload     = errors.New("duplicate file already exists")
+	ErrUnsupportedFileType = errors.New("unsupported file format: only image, video, and PDF files are allowed")
 )
 
 type FileService struct {
@@ -102,6 +103,10 @@ func (s *FileService) FastUpload(
 	originalSize := int64(len(originalData))
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 	mimeType := utils.DetectMimeType(originalData, filename)
+
+	if !utils.IsAllowedUpload(mimeType, filename) {
+		return nil, ErrUnsupportedFileType
+	}
 
 	fileID := uuid.New()
 	now := time.Now().UTC()

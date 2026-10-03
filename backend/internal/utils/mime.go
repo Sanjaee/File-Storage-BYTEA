@@ -100,3 +100,37 @@ func GetCategory(mimeType string) string {
 		return "Other"
 	}
 }
+
+// IsAllowedUpload strictly validates that the file is an Image, Video, or PDF.
+// Any executable, application binary (e.g. .exe, .apk, .msi, .bat, etc.) is strictly forbidden.
+func IsAllowedUpload(mimeType string, filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	// Explicit blocked extensions list (executables, archives, scripts, apps)
+	blockedExts := map[string]bool{
+		".exe": true, ".apk": true, ".msi": true, ".bat": true,
+		".cmd": true, ".com": true, ".sh": true, ".bin": true,
+		".app": true, ".dmg": true, ".dll": true, ".sys": true,
+		".vbs": true, ".ps1": true, ".scr": true, ".jar": true,
+		".iso": true, ".run": true, ".deb": true, ".rpm": true,
+	}
+	if blockedExts[ext] {
+		return false
+	}
+
+	mimeType = strings.ToLower(mimeType)
+
+	// Allowed categories: Image, Video, PDF
+	if strings.HasPrefix(mimeType, "image/") {
+		return true
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return true
+	}
+	if mimeType == "application/pdf" || ext == ".pdf" {
+		return true
+	}
+
+	return false
+}
+

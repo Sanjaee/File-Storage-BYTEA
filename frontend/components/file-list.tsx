@@ -51,7 +51,7 @@ export function FileList({
   const parentRef = useRef<HTMLDivElement>(null)
   const headerCheckboxRef = useRef<HTMLInputElement>(null)
 
-  const categories = ["All", "Image", "Video", "PDF", "Document", "Archive", "Other"]
+  const categories = ["All", "Image", "Video", "PDF"]
   const statuses = [
     { label: "All Status", value: "all" },
     { label: "Completed", value: "completed" },

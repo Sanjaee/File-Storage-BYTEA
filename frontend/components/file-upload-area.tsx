@@ -12,7 +12,8 @@ import {
   ArrowUpCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { formatBytes, getFileCategory } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
+import { formatBytes, getFileCategory, isAllowedFileType } from "@/lib/utils"
 
 interface SelectedFile {
   id: string
@@ -30,6 +31,7 @@ export function FileUploadArea({
   onFilesSelected,
   disabled = false,
 }: FileUploadAreaProps) {
+  const { toast } = useToast()
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -75,7 +77,28 @@ export function FileUploadArea({
   }
 
   const processFiles = (files: File[]) => {
-    const newItems: SelectedFile[] = files.map((file) => {
+    const allowedFiles: File[] = []
+    const rejectedFiles: File[] = []
+
+    files.forEach((file) => {
+      if (isAllowedFileType(file.type, file.name)) {
+        allowedFiles.push(file)
+      } else {
+        rejectedFiles.push(file)
+      }
+    })
+
+    if (rejectedFiles.length > 0) {
+      toast({
+        title: "Format File Ditolak",
+        description: `${rejectedFiles.length} file ditolak. Hanya format Gambar (Image), Video, dan PDF yang diizinkan. File seperti APK, EXE, atau aplikasi dilarang.`,
+        type: "error",
+      })
+    }
+
+    if (allowedFiles.length === 0) return
+
+    const newItems: SelectedFile[] = allowedFiles.map((file) => {
       const category = getFileCategory(file.type, file.name)
       let previewUrl: string | undefined = undefined
 
@@ -150,6 +173,7 @@ export function FileUploadArea({
           ref={fileInputRef}
           type="file"
           multiple
+          accept="image/*,video/*,application/pdf,.pdf"
           className="hidden"
           onChange={handleFileInputChange}
           disabled={disabled}
@@ -167,19 +191,19 @@ export function FileUploadArea({
         </p>
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            <ImageIcon className="h-3.5 w-3.5 text-purple-500" /> Images
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 font-medium dark:bg-slate-800 text-purple-600 dark:text-purple-400">
+            <ImageIcon className="h-3.5 w-3.5" /> Images
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            <VideoIcon className="h-3.5 w-3.5 text-rose-500" /> Videos
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 font-medium dark:bg-slate-800 text-rose-600 dark:text-rose-400">
+            <VideoIcon className="h-3.5 w-3.5" /> Videos
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            <FileTextIcon className="h-3.5 w-3.5 text-blue-500" /> Documents
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 font-medium dark:bg-slate-800 text-red-600 dark:text-red-400">
+            <FileTextIcon className="h-3.5 w-3.5" /> PDF
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
-            <ArchiveIcon className="h-3.5 w-3.5 text-amber-500" /> Archives
+          <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 text-red-600 dark:text-red-400 font-semibold px-2 py-1 text-[11px] border border-red-500/20">
+            ✕ Dilarang: APK, EXE, Aplikasi
           </span>
-          <span>&bull; Up to 500 MB per file &bull; Direct PostgreSQL BYTEA</span>
+          <span className="text-[11px]">&bull; Up to 500 MB per file &bull; Direct PostgreSQL BYTEA</span>
         </div>
       </div>
 

@@ -83,3 +83,23 @@ export function getFileCategory(mimeType: string, filename?: string): FileCatego
   }
   return "Other"
 }
+
+export const BLOCKED_EXTENSIONS = new Set([
+  "exe", "apk", "msi", "bat", "cmd", "com", "sh", "bin", "app", "dmg",
+  "dll", "sys", "vbs", "ps1", "scr", "jar", "iso", "run", "deb", "rpm"
+])
+
+/**
+ * Validates that an upload is strictly an Image, Video, or PDF.
+ * Explicitly rejects APK, EXE, and other application/executable binaries.
+ */
+export function isAllowedFileType(mimeType: string, filename?: string): boolean {
+  const ext = (filename ? filename.split(".").pop() : "")?.toLowerCase() || ""
+  if (BLOCKED_EXTENSIONS.has(ext)) {
+    return false
+  }
+
+  const category = getFileCategory(mimeType, filename)
+  return category === "Image" || category === "Video" || category === "PDF"
+}
+

@@ -128,6 +128,10 @@ func (h *FileHandler) FastUpload(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.service.FastUpload(r.Context(), header.Filename, file, header.Size, batchID)
 	if err != nil {
+		if errors.Is(err, service.ErrUnsupportedFileType) {
+			sendError(w, http.StatusBadRequest, "Hanya file Gambar (Images), Video, dan PDF yang diizinkan untuk di-upload. File aplikasi, APK, dan executable dilarang.")
+			return
+		}
 		if errors.Is(err, service.ErrFileTooLarge) {
 			sendError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("File exceeds maximum size. Maximum allowed size: %d MB.", h.cfg.MaxUploadSizeMB))
 			return
@@ -139,6 +143,7 @@ func (h *FileHandler) FastUpload(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, "Upload failed. The file was not saved.")
 		return
 	}
+
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
